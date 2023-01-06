@@ -1,7 +1,16 @@
-name = "FluxAdvection"
+name = "CharFPE"
 uuid = "fd903f17-dfff-45de-bf4a-1e70ff052049"
 authors = ["Lars Frogner <lars_frogner@hotmail.com> and contributors"]
 version = "0.1.0"
+
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+NLsolve = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
+Pluto = "c3e4b0f8-55cb-11ea-2926-15256bba5781"
+PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+UnzipLoops = "65164825-a06a-491c-beb8-9961b1a95625"
 
 [compat]
 julia = "1"
