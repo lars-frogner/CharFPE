@@ -61,7 +61,7 @@ end
 
 # ╔═╡ 63954b95-eed0-4508-b7e1-78c74a8a6a6c
 begin
-    nH(s) = 2e9
+    nH(s) = 1e10
     x(s) = 0.4
     dlnBds(s) = 0*1e-9
     ℰ(s) = 0*8e-9
@@ -70,7 +70,7 @@ end
 # ╔═╡ 4271b9f9-5174-44f5-93d2-05ed6787a59b
 begin
     s_max = 5e8
-    Δs = 1e6
+    Δs = 3e6
     s = 0.0:Δs:s_max
 end
 
@@ -84,7 +84,9 @@ end
 
 # ╔═╡ 6b248a0c-bb97-461a-8495-2ffe1362b9ae
 begin
-    log₁₀E = range(log10(1e-1 * Ec), log10(1e2 * Ec), 400)
+	E_min = 0.1 * Ec
+	E_max = 10.0 * Ec
+    log₁₀E = range(log10(E_min), log10(E_max), 100)
     E = 10 .^ log₁₀E
 end
 
@@ -100,18 +102,17 @@ begin
     Q_an = compute_analytical_heating(beam, μ₀, s_an, nH.(s_an), x(s_an[1]))
 end
 
-# ╔═╡ cf9ceffd-4aa7-4050-b7ce-48d1574e22eb
-max_E_fac = 0.01
-
 # ╔═╡ 62b5e343-968c-4470-83d4-58a460e28e9f
-μ_l, n_l, E₀_l, Q_l = propagate_lagrange(beam, s, log₁₀E, μ₀, n₀, nH, x, dlnBds, ℰ, max_E_fac)
+μ_l, n_l, E₀_l, Q_l = propagate_lagrange(beam, s, log₁₀E, μ₀, n₀, nH, x, dlnBds, ℰ)
 
 # ╔═╡ e8804911-1896-47d1-bcc0-b37b6c889791
 @bind k PlutoUI.Slider(1:length(s))
 
 # ╔═╡ 974bb463-08fd-4d4a-afe4-766e9b42a99e
 let
-	fig, ax = plotdistr(E, μ_l[:, k], log10.(n_l[:, k]), colorrange=(-1.0, 8.0))
+	n2 = copy(n_l)
+	n2[n2.<0.0] .= NaN
+	fig, ax = plotdistr(E, μ_l[:, k], log10.(n2[:, k]), colorrange=(-1.0, 8.0))
 	fig
 end
 
@@ -219,7 +220,6 @@ end
 # ╠═6b248a0c-bb97-461a-8495-2ffe1362b9ae
 # ╠═67affd08-62ae-471f-9b4d-9451dbb3df82
 # ╠═2163f87c-9d96-452e-badc-be339ecf281a
-# ╠═cf9ceffd-4aa7-4050-b7ce-48d1574e22eb
 # ╠═62b5e343-968c-4470-83d4-58a460e28e9f
 # ╠═e8804911-1896-47d1-bcc0-b37b6c889791
 # ╠═974bb463-08fd-4d4a-afe4-766e9b42a99e

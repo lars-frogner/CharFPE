@@ -4,6 +4,7 @@ export propagate_lagrange, propagate_semi_lagrange_2d, advance_E_μ
 
 using Interpolations
 using UnzipLoops
+using Dierckx
 
 import ..RealArr1D, ..RealArr2D
 using ..Const: mₑ, K, KEV_TO_ERG
@@ -20,15 +21,13 @@ function advance_E_μ(
     dlnBdN::Real,
     ℰ::Real,
     ΔN::Real,
-    max_E_fac::Real,
 )::Tuple{Float64,Float64}
     tr = LowEnergyTransport(hcl, nH, dlnBdN, ℰ)
     result = compute_E_μ(tr, E₀, μ₀, ΔN)
-    return (true || result === nothing) ?
-           advance_E_μ_euler(E₀, μ₀, hcl, nH, dlnBdN, ℰ, ΔN, max_E_fac) : result
+    return (result === nothing) ? advance_E_μ_Heun2(E₀, μ₀, hcl, nH, dlnBdN, ℰ, ΔN) : result
 end
 
-function advance_E_μ_euler(
+function advance_E_μ_RK4(
     E₀::Real,
     μ₀::Real,
     hcl::HybridCoulombLog,
@@ -36,45 +35,54 @@ function advance_E_μ_euler(
     dlnBdN::Real,
     ℰ::Real,
     ΔN::Real,
-    max_E_fac::Real,
 )::Tuple{Float64,Float64}
     @assert E₀ > 0
     @assert μ₀ > 0
 
-    dEdN = compute_dEdN.(E₀, μ₀, hcl, nH, ℰ)
-    dμdN = compute_dμdN.(E₀, μ₀, hcl, nH, dlnBdN, ℰ)
+    dEdN₁ = compute_dEdN.(E₀, μ₀, hcl, nH, ℰ)
+    dμdN₁ = compute_dμdN.(E₀, μ₀, hcl, nH, dlnBdN, ℰ)
 
-    @assert dμdN < 0
+    E₁ = E₀ + dEdN₁ * 0.5 * ΔN
+    μ₁ = μ₀ + dμdN₁ * 0.5 * ΔN
 
-    ΔE_max = max_E_fac * E₀
-    ΔE = abs(dEdN * ΔN)
-    n_steps = Int(ceil(ΔE / ΔE_max))
+    if E₁ <= 0.0 || μ₁ <= 0
+        return 0.0, 0.0
+    end
 
-    ΔN_sub = ΔN / n_steps
+    dEdN₂ = compute_dEdN.(E₁, μ₁, hcl, nH, ℰ)
+    dμdN₂ = compute_dμdN.(E₁, μ₁, hcl, nH, dlnBdN, ℰ)
 
-    E = E₀ + dEdN * ΔN_sub
-    μ = μ₀ + dμdN * ΔN_sub
+    E₂ = E₀ + dEdN₂ * 0.5 * ΔN
+    μ₂ = μ₀ + dμdN₂ * 0.5 * ΔN
+
+    if E₂ <= 0.0 || μ₂ <= 0
+        return 0.0, 0.0
+    end
+
+    dEdN₃ = compute_dEdN.(E₂, μ₂, hcl, nH, ℰ)
+    dμdN₃ = compute_dμdN.(E₂, μ₂, hcl, nH, dlnBdN, ℰ)
+
+    E₃ = E₀ + dEdN₃ * ΔN
+    μ₃ = μ₀ + dμdN₃ * ΔN
+
+    if E₃ <= 0.0 || μ₃ <= 0
+        return 0.0, 0.0
+    end
+
+    dEdN₄ = compute_dEdN.(E₃, μ₃, hcl, nH, ℰ)
+    dμdN₄ = compute_dμdN.(E₃, μ₃, hcl, nH, dlnBdN, ℰ)
+
+    E = E₀ + (dEdN₁ + 2 * dEdN₂ + 2 * dEdN₃ + dEdN₄) / 6.0 * ΔN
+    μ = μ₀ + (dμdN₁ + 2 * dμdN₂ + 2 * dμdN₃ + dμdN₄) / 6.0 * ΔN
 
     if E <= 0.0 || μ <= 0
         return 0.0, 0.0
     end
 
-    for _ = 2:n_steps
-        dEdN = compute_dEdN.(E, μ, hcl, nH, ℰ)
-        dμdN = compute_dμdN.(E, μ, hcl, nH, dlnBdN, ℰ)
-        E += dEdN * ΔN_sub
-        μ += dμdN * ΔN_sub
-        if E <= 0.0 || μ <= 0
-            E = 0
-            μ = 0
-            break
-        end
-    end
-
     return E, μ
 end
 
-function advance_E_μ_euler(
+function advance_E_μ_Heun3(
     E₀::Real,
     μ₀::Real,
     hcl::HybridCoulombLog,
@@ -82,42 +90,116 @@ function advance_E_μ_euler(
     dlnBdN::Real,
     ℰ::Real,
     ΔN::Real,
-    max_E_fac::Real,
 )::Tuple{Float64,Float64}
     @assert E₀ > 0
     @assert μ₀ > 0
 
-    dEdN = compute_dEdN.(E₀, μ₀, hcl, nH, ℰ)
-    dμdN = compute_dμdN.(E₀, μ₀, hcl, nH, dlnBdN, ℰ)
+    dEdN₁ = compute_dEdN.(E₀, μ₀, hcl, nH, ℰ)
+    dμdN₁ = compute_dμdN.(E₀, μ₀, hcl, nH, dlnBdN, ℰ)
 
-    @assert dμdN < 0
+    E₁ = E₀ + dEdN₁ * ΔN / 3.0
+    μ₁ = μ₀ + dμdN₁ * ΔN / 3.0
 
-    ΔE_max = max_E_fac * E₀
-    ΔE = abs(dEdN * ΔN)
-    n_steps = Int(ceil(ΔE / ΔE_max))
+    if E₁ <= 0.0 || μ₁ <= 0
+        return 0.0, 0.0
+    end
 
-    ΔN_sub = ΔN / n_steps
+    dEdN₂ = compute_dEdN.(E₁, μ₁, hcl, nH, ℰ)
+    dμdN₂ = compute_dμdN.(E₁, μ₁, hcl, nH, dlnBdN, ℰ)
 
-    E = E₀ + dEdN * ΔN_sub
-    μ = μ₀ + dμdN * ΔN_sub
+    E₂ = E₀ + dEdN₂ * ΔN * 2.0 / 3.0
+    μ₂ = μ₀ + dμdN₂ * ΔN * 2.0 / 3.0
+
+    if E₂ <= 0.0 || μ₂ <= 0
+        return 0.0, 0.0
+    end
+
+    dEdN₃ = compute_dEdN.(E₂, μ₂, hcl, nH, ℰ)
+    dμdN₃ = compute_dμdN.(E₂, μ₂, hcl, nH, dlnBdN, ℰ)
+
+    E = E₀ + (0.25 * dEdN₁ + 0.75 * dEdN₃) * ΔN
+    μ = μ₀ + (0.25 * dμdN₁ + 0.75 * dμdN₃) * ΔN
 
     if E <= 0.0 || μ <= 0
         return 0.0, 0.0
     end
 
-    for _ = 2:n_steps
-        dEdN = compute_dEdN.(E, μ, hcl, nH, ℰ)
-        dμdN = compute_dμdN.(E, μ, hcl, nH, dlnBdN, ℰ)
-        E += dEdN * ΔN_sub
-        μ += dμdN * ΔN_sub
-        if E <= 0.0 || μ <= 0
-            E = 0
-            μ = 0
-            break
-        end
+    return E, μ
+end
+
+function advance_E_μ_Heun2(
+    E₀::Real,
+    μ₀::Real,
+    hcl::HybridCoulombLog,
+    nH::Real,
+    dlnBdN::Real,
+    ℰ::Real,
+    ΔN::Real,
+)::Tuple{Float64,Float64}
+    @assert E₀ > 0
+    @assert μ₀ > 0
+
+    dEdN₁ = compute_dEdN.(E₀, μ₀, hcl, nH, ℰ)
+    dμdN₁ = compute_dμdN.(E₀, μ₀, hcl, nH, dlnBdN, ℰ)
+
+    E₁ = E₀ + dEdN₁ * ΔN
+    μ₁ = μ₀ + dμdN₁ * ΔN
+
+    if E₁ <= 0.0 || μ₁ <= 0
+        return 0.0, 0.0
+    end
+
+    dEdN₂ = compute_dEdN.(E₁, μ₁, hcl, nH, ℰ)
+    dμdN₂ = compute_dμdN.(E₁, μ₁, hcl, nH, dlnBdN, ℰ)
+
+    E = E₀ + 0.5 * (dEdN₁ + dEdN₂) * ΔN
+    μ = μ₀ + 0.5 * (dμdN₁ + dμdN₂) * ΔN
+
+    if E <= 0.0 || μ <= 0
+        return 0.0, 0.0
     end
 
     return E, μ
+end
+
+function advance_E_μ_n_Heun2(
+    E₀::Real,
+    μ₀::Real,
+    n₀::Real,
+    hcl::HybridCoulombLog,
+    nH::Real,
+    dlnBdN::Real,
+    ℰ::Real,
+    ΔN::Real,
+)::Tuple{Float64,Float64,Float64}
+    @assert E₀ > 0
+    @assert μ₀ > 0
+
+    dEdN₁ = compute_dEdN.(E₀, μ₀, hcl, nH, ℰ)
+    dμdN₁ = compute_dμdN.(E₀, μ₀, hcl, nH, dlnBdN, ℰ)
+    dndN₁ = compute_dndN.(E₀, μ₀, n₀, hcl)
+
+    E₁ = E₀ + dEdN₁ * ΔN
+    μ₁ = μ₀ + dμdN₁ * ΔN
+    n₁ = n₀ + dndN₁ * ΔN
+
+    if E₁ <= 0.0 || μ₁ <= 0
+        return 0.0, 0.0, 0.0
+    end
+
+    dEdN₂ = compute_dEdN.(E₁, μ₁, hcl, nH, ℰ)
+    dμdN₂ = compute_dμdN.(E₁, μ₁, hcl, nH, dlnBdN, ℰ)
+    dndN₂ = compute_dndN.(E₁, μ₁, n₁, hcl)
+
+    E = E₀ + 0.5 * (dEdN₁ + dEdN₂) * ΔN
+    μ = μ₀ + 0.5 * (dμdN₁ + dμdN₂) * ΔN
+    n = n₀ + 0.5 * (dndN₁ + dndN₂) * ΔN
+
+    if E <= 0.0 || μ <= 0
+        return 0.0, 0.0, 0.0
+    end
+
+    return E, μ, n
 end
 
 function propagate_lagrange(
@@ -130,7 +212,6 @@ function propagate_lagrange(
     x::Function,
     dlnBds::Function,
     ℰ::Function,
-    max_E_fac::Real,
 )
     n_distances = length(s)
     n_energies = length(log₁₀E_range)
@@ -184,16 +265,15 @@ function propagate_lagrange(
             n[offset:end, k-1],
             E₀[offset:end, k-1],
             ΔN,
-            max_E_fac,
         )
 
         if result === nothing
             break
         end
 
-        μ_curr, n_curr, E₀_curr, Q_curr, i_min = result
+        μ_curr, n_curr, E₀_curr, Q_curr, i_therm = result
 
-        offset += i_min - 1
+        offset += i_therm - 1
 
         μ[offset:end, k] = μ_curr
         n[offset:end, k] = n_curr
@@ -220,37 +300,28 @@ function step_lagrange(
     μ_prev,
     n_prev,
     E₀_prev,
-    ΔN,
-    max_E_fac,
+    ΔN;
+    interp_order = 1,
 )
     @assert all(E .> 0.0)
     @assert all(μ_prev .> 0.0)
 
-    E_points, μ_points = broadcast_unzip(
-        advance_E_μ,
-        E,
-        μ_prev,
-        hcl_prev,
-        nH_prev,
-        dlnBdN_prev,
-        ℰ_prev,
-        ΔN,
-        max_E_fac,
-    )
+    E_points, μ_points =
+        broadcast_unzip(advance_E_μ, E, μ_prev, hcl_prev, nH_prev, dlnBdN_prev, ℰ_prev, ΔN)
 
-    i_min_prev = searchsortedlast(E_points, 0.0) + 1
+    i_therm_prev = searchsortedlast(E_points, 0.0) + 1
 
-    if i_min_prev >= length(E_points)
+    if i_therm_prev >= length(E_points)
         return nothing
     end
 
     Q = 0.0
 
-    if i_min_prev > 1
-        valid_E_ = E[1:i_min_prev]
-        μ_prev_ = μ_prev[1:i_min_prev]
-        n_prev_ = n_prev[1:i_min_prev]
-        E₀_prev_ = E₀_prev[1:i_min_prev]
+    if i_therm_prev > 1
+        valid_E_ = E[1:i_therm_prev]
+        μ_prev_ = μ_prev[1:i_therm_prev]
+        n_prev_ = n_prev[1:i_therm_prev]
+        E₀_prev_ = E₀_prev[1:i_therm_prev]
 
         dEdN_ = compute_dEdN.(valid_E_, μ_prev_, hcl_prev, nH_prev, ℰ_prev)
         dE₀dN_ = compute_dEdN.(E₀_prev_, μ_prev_, hcl_prev, nH_prev, ℰ_prev)
@@ -262,40 +333,30 @@ function step_lagrange(
         Q += trapz(E₀_prev_, dQdE₀_)
     end
 
-    valid_E_points = E_points[i_min_prev:end]
+    valid_E_points = E_points[i_therm_prev:end]
     log₁₀valid_E_points = log10.(valid_E_points)
-    valid_μ_points = μ_points[i_min_prev:end]
+    valid_μ_points = μ_points[i_therm_prev:end]
 
     @assert all(valid_E_points .> 0)
 
-    i_min = searchsortedlast(E, valid_E_points[1]) + 1
+    i_therm = searchsortedlast(E, valid_E_points[1]) + 1
 
-    valid_E = E[i_min:end]
+    valid_E = E[i_therm:end]
     log₁₀valid_E = log10.(valid_E)
 
-    μ_interp = extrapolate(
-        interpolate((log₁₀valid_E_points,), valid_μ_points, Gridded(Linear())),
-        Line(),
-    )
+    μ_interp = Spline1D(log₁₀valid_E_points, valid_μ_points, k = 1, bc = "extrapolate")
     μ_curr = μ_interp.(log₁₀valid_E)
 
-    dndN_prev =
-        compute_dndN.(
-            E[i_min_prev:end],
-            μ_prev[i_min_prev:end],
-            n_prev[i_min_prev:end],
-            hcl_prev,
-        )
-    n_points = @. n_prev[i_min_prev:end] + dndN_prev * ΔN
+    dndN_over_n_prev =
+        compute_dndN_over_n.(E[i_therm_prev:end], μ_prev[i_therm_prev:end], hcl_prev)
 
-    n_interp =
-        extrapolate(interpolate((log₁₀valid_E_points,), n_points, Gridded(Linear())), 0.0)
+    n_points = @. n_prev[i_therm_prev:end] * (1.0 + dndN_over_n_prev * ΔN)
+
+    n_interp = Spline1D(log₁₀valid_E_points, n_points, k = interp_order, bc = "extrapolate")
     n_curr = n_interp.(log₁₀valid_E)
 
-    E₀_interp = extrapolate(
-        interpolate((log₁₀valid_E_points,), E₀_prev[i_min_prev:end], Gridded(Linear())),
-        Line(),
-    )
+    E₀_interp =
+        Spline1D(log₁₀valid_E_points, E₀_prev[i_therm_prev:end], k = 1, bc = "extrapolate")
     E₀_curr = E₀_interp.(log₁₀valid_E)
 
     dEdN = compute_dEdN.(valid_E, μ_curr, hcl_curr, nH_curr, ℰ_curr)
@@ -307,7 +368,7 @@ function step_lagrange(
 
     Q += trapz(E₀_curr, dQdE₀)
 
-    return μ_curr, n_curr, E₀_curr, Q, i_min
+    return μ_curr, n_curr, E₀_curr, Q, i_therm
 end
 
 function step_semi_lagrange(
@@ -324,22 +385,12 @@ function step_semi_lagrange(
     n_prev,
     E₀_prev,
     ΔN,
-    max_E_fac,
 )
     @assert all(E .> 0.0)
     @assert all(μ_prev .> 0.0)
 
-    E_points, μ_points = broadcast_unzip(
-        advance_E_μ,
-        E,
-        μ_prev,
-        hcl_prev,
-        nH_prev,
-        dlnBdN_prev,
-        ℰ_prev,
-        ΔN,
-        max_E_fac,
-    )
+    E_points, μ_points =
+        broadcast_unzip(advance_E_μ, E, μ_prev, hcl_prev, nH_prev, dlnBdN_prev, ℰ_prev, ΔN)
 
     i_min_prev = searchsortedlast(E_points, 0.0) + 1
 
@@ -392,7 +443,6 @@ function step_semi_lagrange(
         dlnBdN_curr,
         ℰ_curr,
         -ΔN,
-        max_E_fac,
     )
 
     n_interp =
@@ -427,7 +477,6 @@ function propagate_semi_lagrange_2d(
     x::Function,
     dlnBds::Function,
     ℰ::Function,
-    max_E_fac::Real,
     E_min::Real,
 )
     n_distances = length(s)
@@ -497,7 +546,6 @@ function propagate_semi_lagrange_2d(
         #     ℰ_prev,
         #     ΔN,
         #     E_min,
-        #     max_E_fac,
         # )
         # dndN_over_n_DP = compute_dndN_over_n.(E_center, μ_center', hcl_prev)
         # n2 = @. n[k-1, i_min:end, j_min:end] +
@@ -523,7 +571,6 @@ function propagate_semi_lagrange_2d(
             ℰ_curr,
             -ΔN,
             E_min,
-            max_E_fac,
         )
 
         E_DP_all[k, i_min:end, j_min:end] = E_DP
