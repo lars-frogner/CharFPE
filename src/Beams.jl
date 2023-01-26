@@ -12,7 +12,7 @@ using SpecialFunctions: beta_inc, beta
 
 import ..RealArr1D
 using ..Numerical: cumtrapz, trapz
-using ..Const: mₑ, K
+using ..Const: mₑ, K, KEV_TO_ERG
 using ..Atmosphere: CoulombLog, HybridCoulombLog
 
 struct Beam
@@ -71,7 +71,7 @@ function compute_analytical_heating(
     γ = getfield.(hcl, :γ)
 
     N = cumtrapz(s, nH)
-    Nc = (μ₀ * beam.Ec^2) / (3K * γ)
+    Nc = @. (μ₀ * beam.Ec^2) / (3K * γ)
 
     N_star = cumtrapz(s, @. nH * γ / cl.lnΛ)
     Nc_star = μ₀ * beam.Ec^2 / (3K * cl.lnΛ)
