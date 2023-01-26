@@ -222,7 +222,7 @@ function advance_E_μ_n_Heun2(
     μ₁ = μ₀ + dμdN₁ * ΔN
     n₁ = n₀ + dndN₁ * ΔN
 
-    if E₁ <= 0.0 || μ₁ <= 0 || n₁ <= 0
+    if E₁ <= 0.0 || μ₁ <= 0
         return 0.0, 0.0, 0.0
     end
 
@@ -234,11 +234,11 @@ function advance_E_μ_n_Heun2(
     μ = μ₀ + 0.5 * (dμdN₁ + dμdN₂) * ΔN
     n = n₀ + 0.5 * (dndN₁ + dndN₂) * ΔN
 
-    if E <= 0.0 || μ <= 0 || n <= 0
+    if E <= 0.0 || μ <= 0
         return 0.0, 0.0, 0.0
     end
 
-    return E, μ, n
+    return E, μ, max(0, n)
 end
 
 function compute_E_μ_n(
@@ -250,7 +250,6 @@ function compute_E_μ_n(
 )::Union{Tuple{Float64,Float64,Float64},Nothing}
     @assert E₀ > 0
     @assert μ₀ > 0
-    @assert n₀ >= 0
 
     cB_E₀²_div_μ₀ = tr.cB * E₀^2 / μ₀
     cℰ_E₀_div_μ₀ = tr.cℰ * E₀ / μ₀
@@ -307,7 +306,7 @@ function compute_E_μ_n_ionized(
 
     n = n₀ / sqrt(x)
 
-    return E, μ, n
+    return E, μ, max(0, n)
 end
 
 function compute_E_μ_n_unionized(
@@ -361,7 +360,7 @@ function compute_E_μ_n_unionized(
 
     n = n₀ * x^(-tr.hcl.γ′′ / (2 * tr.hcl.γ))
 
-    return E, μ, n
+    return E, μ, max(0, n)
 end
 
 function solve(f, dfdx, x₀::Real)
