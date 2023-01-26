@@ -22,7 +22,9 @@ function propagate_lagrange_discrete(
     x::RealArr1D,
     dlnBds::RealArr1D,
     ℰ::RealArr1D,
-    use_analytical::Bool,
+    use_analytical::Bool;
+    min_n_steps_to_thermalize::Int = 2,
+    max_n_steps_to_thermalize::Int = 10,
 )
     n_distances = length(s)
     n_energies = length(log₁₀E_range)
@@ -56,7 +58,88 @@ function propagate_lagrange_discrete(
 
     hcl_prev = HybridCoulombLog(coulomb_log, x_prev)
 
-    for k in eachindex(s)[2:end]
+    ΔN = (s[2] - s[1]) * nH_prev
+
+    dEcdN = compute_dEdN(beam.Ec, μ₀, hcl_prev, nH_prev, ℰ_prev)
+    n_steps_to_thermalize = beam.Ec / (-dEcdN * ΔN)
+    n_initial_steps = min(
+        max_n_steps_to_thermalize,
+        Int(ceil(min_n_steps_to_thermalize / n_steps_to_thermalize)),
+    )
+    ΔN_new = ΔN / n_initial_steps
+
+    E_sub = zeros(n_energies, n_initial_steps + 1)
+    E_sub[:, 1] = E[:, 1]
+    μ_sub = zeros(n_energies, n_initial_steps + 1)
+    μ_sub[:, 1] = μ[:, 1]
+    n_sub = zeros(n_energies, n_initial_steps + 1)
+    n_sub[:, 1] = n[:, 1]
+    E₀_sub = zeros(n_energies, n_initial_steps + 1)
+    E₀_sub[:, 1] = E₀[:, 1]
+    Q_sub = 0.0
+
+    nH_curr = nH[2]
+    x_curr = x[2]
+    dlnBdN_curr = dlnBds[2] / nH_curr
+    ℰ_curr = ℰ[2]
+    hcl_curr = HybridCoulombLog(coulomb_log, x_curr)
+
+    for k = 2:n_initial_steps+1
+        result = step_lagrange(
+            μ₀,
+            hcl_prev,
+            nH_prev,
+            dlnBdN_prev,
+            ℰ_prev,
+            hcl_curr,
+            nH_curr,
+            ℰ_curr,
+            E_sub[:, k-1],
+            μ_sub[:, k-1],
+            n_sub[:, k-1],
+            E₀_sub[:, k-1],
+            ΔN_new,
+            use_analytical,
+        )
+
+        if result === nothing
+            @goto terminate
+        end
+
+        high_energy_μ = advance_high_energy_μ(high_energy_μ, dlnBdN_prev, ΔN_new)
+        ℰ_energy_loss = advance_ℰ_energy_loss(ℰ_energy_loss, ℰ_prev, nH_prev, ΔN_new)
+
+        if high_energy_μ == 0.0
+            @goto terminate
+        end
+
+        μ_curr, n_curr, E₀_curr, Q_curr, i_therm = result
+
+        shift = i_therm - 1
+
+        E_sub[1:end-shift, k] = E_sub[i_therm:end, k-1]
+        μ_sub[1:end-shift, k] = μ_curr
+        n_sub[1:end-shift, k] = n_curr
+        E₀_sub[1:end-shift, k] = E₀_curr
+
+        if shift > 0
+            E_sub[end+1-shift:end, k] =
+                10.0 .^ (log10(E_sub[end, k-1]) .+ [i * Δlog₁₀E for i = 1:shift])
+            E₀_sub[end+1-shift:end, k] = E_sub[end+1-shift:end, k] .+ ℰ_energy_loss
+            μ_sub[end+1-shift:end, k] .= high_energy_μ
+            n_sub[end+1-shift:end, k] = compute_n₀.(beam, E₀_sub[end+1-shift:end, k])
+        end
+
+        Q_sub = Q_curr
+    end
+
+    E[:, 2] = E_sub[:, end]
+    μ[:, 2] = μ_sub[:, end]
+    n[:, 2] = n_sub[:, end]
+    E₀[:, 2] = E₀_sub[:, end]
+    Q[2] += Q_sub
+
+    for k in eachindex(s)[3:end]
         nH_curr = nH[k]
         x_curr = x[k]
         dlnBdN_curr = dlnBds[k] / nH_curr
@@ -115,8 +198,9 @@ function propagate_lagrange_discrete(
         hcl_prev = hcl_curr
         dlnBdN_prev = dlnBdN_curr
     end
+    @label terminate
 
-    return E, μ, n, E₀, Q
+    return E, μ, n, E₀, Q, E_sub, μ_sub, n_sub
 end
 
 function step_lagrange(
